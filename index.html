@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>光祐居服員考核系統 (v4.1 補登版)</title>
+    <title>光祐居服員考核系統 (v6.0 Google登入版)</title>
     
     <!-- React & Tailwind -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -16,12 +16,14 @@
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         .saving-indicator { position: fixed; bottom: 10px; right: 10px; font-size: 12px; color: #64748b; }
+        .login-bg { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); }
     </style>
 
     <!-- Firebase SDK (Module) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getAuth, signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
         // 用戶提供的設定
         const firebaseConfig = {
@@ -36,9 +38,15 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const auth = getAuth(app);
+        const googleProvider = new GoogleAuthProvider();
         const DOC_REF = doc(db, "caregiver_system", "main_data");
 
         window.FirebaseAPI = {
+            login: (email, password) => signInWithEmailAndPassword(auth, email, password),
+            loginGoogle: () => signInWithPopup(auth, googleProvider),
+            logout: () => signOut(auth),
+            onAuthStateChanged: (callback) => onAuthStateChanged(auth, callback),
             subscribe: (onUpdate) => {
                 return onSnapshot(DOC_REF, (docSnap) => {
                     if (docSnap.exists()) {
@@ -48,11 +56,18 @@
                         setDoc(DOC_REF, initialData);
                         onUpdate(initialData);
                     }
+                }, (error) => {
+                    console.warn("讀取資料權限受限或網路錯誤", error);
                 });
             },
-            saveAll: async (staffList, allData) => {
+            saveAll: async (staffList, allData, userEmail) => {
                 try {
-                    await setDoc(DOC_REF, { staffList, allData }, { merge: true });
+                    await setDoc(DOC_REF, { 
+                        staffList, 
+                        allData,
+                        lastModifiedBy: userEmail,
+                        lastModifiedAt: new Date().toISOString()
+                    }, { merge: true });
                     return true;
                 } catch (e) {
                     console.error("儲存失敗:", e);
@@ -75,6 +90,7 @@
             Plus: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M5 12h14"/><path d="M12 5v14"/></svg>,
             Trash2: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>,
             Trophy: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>,
+            AlertCircle: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>,
             Calendar: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>,
             Edit: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>,
             Save: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
@@ -82,7 +98,10 @@
             Upload: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>,
             BarChart: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg>,
             Cloud: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M17.5 19c0-1.7-1.3-3-3-3h-1.1c-.2-2.3-2.1-4-4.4-4-2.6 0-4.6 2.1-4.6 4.6 0 .3.1.6.2.9C2.7 17.8 1.5 19.5 1.5 21.5c0 2.5 2 4.5 4.5 4.5h11.5c2.5 0 4.5-2 4.5-4.5s-2-4.5-4.5-4.5z"/></svg>,
-            History: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+            History: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>,
+            Lock: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+            LogOut: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>,
+            Google: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" {...props}><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
         };
 
         // --- UI Components ---
@@ -90,16 +109,17 @@
         const CardHeader = ({ className, children }) => <div className={`flex flex-col space-y-1.5 p-6 ${className}`}>{children}</div>;
         const CardTitle = ({ className, children }) => <h3 className={`text-xl font-semibold leading-none tracking-tight ${className}`}>{children}</h3>;
         const CardContent = ({ className, children }) => <div className={`p-6 pt-0 ${className}`}>{children}</div>;
-        const Button = ({ className, variant = "default", size = "default", onClick, children, disabled, title }) => {
+        const Button = ({ className, variant = "default", size = "default", onClick, children, disabled, title, type = "button" }) => {
             const baseStyles = "inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50";
             const variants = {
                 default: "bg-blue-600 text-white hover:bg-blue-700",
                 outline: "border border-input bg-background hover:bg-slate-100 hover:text-slate-900",
                 secondary: "bg-slate-600 text-white hover:bg-slate-700",
-                destructive: "bg-red-500 text-white hover:bg-red-600"
+                destructive: "bg-red-500 text-white hover:bg-red-600",
+                google: "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50"
             };
             const sizes = { default: "h-10 px-4 py-2", sm: "h-8 rounded-md px-3 text-xs", icon: "h-10 w-10" };
-            return <button disabled={disabled} className={`${baseStyles} ${variants[variant] || variants.default} ${sizes[size] || sizes.default} ${className}`} onClick={onClick} title={title}>{children}</button>;
+            return <button type={type} disabled={disabled} className={`${baseStyles} ${variants[variant] || variants.default} ${sizes[size] || sizes.default} ${className}`} onClick={onClick} title={title}>{children}</button>;
         };
         const Input = ({ className, ...props }) => (
             <input className={`flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${className}`} {...props} />
@@ -144,18 +164,9 @@
         // Modified Calculation Logic
         const calculateQuarterly = (record) => {
             if (!record) return { total: 0, details: [], bonus: 0, penalty: 0 };
-            
-            // Priority check: Manual Score
             if (record.manualScore !== undefined && record.manualScore !== '' && record.manualScore !== null) {
-                return {
-                    total: parseFloat(record.manualScore).toFixed(2),
-                    details: [{ title: '歷史成績直接補登', raw: '-', weighted: parseFloat(record.manualScore).toFixed(2) }],
-                    bonusData: {},
-                    isNewHire: record.isNewHire,
-                    isManual: true
-                };
+                return { total: parseFloat(record.manualScore).toFixed(2), details: [{ title: '歷史成績直接補登', raw: '-', weighted: parseFloat(record.manualScore).toFixed(2) }], bonusData: {}, isNewHire: record.isNewHire, isManual: true };
             }
-
             const scores = record.scores || {};
             const bonusData = record.bonus || {};
             let totalWeighted = 0, details = [];
@@ -211,26 +222,26 @@
             const scoreDir = totalMax > 0 ? (sumDir / totalMax) * 25 : 0;
             const annualAssessmentScore = scoreSelf + scoreSup + scoreDir;
             
-            // New Logic for Attendance Deductions
+            // Attendance Logic
             const lateCount = (bonus.late || 0);
             const forgotCount = (bonus.forgot || 0);
             const gpsCount = (bonus.gps || 0);
             
             const attDeduct = 
-                (Math.floor(lateCount / 3) * 0.5) +      // Late: 0.5 pts per 3 times
-                ((bonus.absent || 0) * 1) +              // Absent: 1 pt per time
-                ((bonus.leave || 0) * 0.2) +             // Improper Leave: 0.2 pts per time
-                (Math.floor(forgotCount / 2) * 0.5) +    // Forgot Sign-out: 0.5 pts per 2 times
-                (Math.floor(gpsCount / 5) * 0.5);        // GPS Error: 0.5 pts per 5 times
+                (Math.floor(lateCount / 3) * 0.5) +      
+                ((bonus.absent || 0) * 1) +              
+                ((bonus.leave || 0) * 0.2) +             
+                (Math.floor(forgotCount / 2) * 0.5) +    
+                (Math.floor(gpsCount / 5) * 0.5);        
             
-            // New Logic for Rewards/Punishments
+            // Rewards Logic
             const rewardsScore = 
-                ((bonus.commendation1 || 0) * 0.3) +     // Commendation: +0.3
-                ((bonus.commendation2 || 0) * 1) +       // Minor Merit: +1
-                ((bonus.commendation3 || 0) * 3) -       // Major Merit: +3
-                ((bonus.warning || 0) * 0.3) -           // Warning: -0.3
-                ((bonus.minor || 0) * 1) -               // Minor Demerit: -1
-                ((bonus.major || 0) * 3);                // Major Demerit: -3
+                ((bonus.commendation1 || 0) * 0.3) +     
+                ((bonus.commendation2 || 0) * 1) +       
+                ((bonus.commendation3 || 0) * 3) -       
+                ((bonus.warning || 0) * 0.3) -           
+                ((bonus.minor || 0) * 1) -               
+                ((bonus.major || 0) * 3);                
 
             const final = annualFromQuarter + annualAssessmentScore + rewardsScore - attDeduct;
             return { qDetails, qAvg: qAvg.toFixed(2), annualFromQuarter: annualFromQuarter.toFixed(2), scoreSelf: scoreSelf.toFixed(2), scoreSup: scoreSup.toFixed(2), scoreDir: scoreDir.toFixed(2), annualAssessmentScore: annualAssessmentScore.toFixed(2), attDeduct: attDeduct.toFixed(2), rewardsScore: rewardsScore.toFixed(2), final: final.toFixed(2), bonus };
@@ -273,7 +284,49 @@
             );
         };
 
+        const LoginPage = ({ onLogin, onGoogleLogin, loading, error }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const handleSubmit = (e) => { e.preventDefault(); onLogin(email, password); };
+            return (
+                <div className="min-h-screen login-bg flex items-center justify-center p-4">
+                    <Card className="w-full max-w-md shadow-2xl border-none">
+                        <CardHeader className="text-center pb-2">
+                            <div className="mx-auto bg-blue-600 w-12 h-12 rounded-lg flex items-center justify-center mb-4"><Icons.Lock className="text-white w-6 h-6"/></div>
+                            <CardTitle className="text-2xl font-bold text-slate-800">居服員考核系統</CardTitle>
+                            <p className="text-slate-500 text-sm mt-2">請登入以存取資料庫</p>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="space-y-4">
+                                <Button onClick={onGoogleLogin} variant="google" className="w-full h-11 text-base flex items-center justify-center gap-2">
+                                    <Icons.Google className="w-5 h-5"/> 使用 Google 帳號登入
+                                </Button>
+                                
+                                <div className="relative">
+                                    <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-300"></span></div>
+                                    <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-slate-500">或使用 Email</span></div>
+                                </div>
+
+                                <form onSubmit={handleSubmit} className="space-y-4">
+                                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Email 帳號</label><Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" className="h-11" /></div>
+                                    <div><label className="block text-sm font-medium text-slate-700 mb-1">密碼</label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" className="h-11" /></div>
+                                    {error && <div className="text-red-500 text-sm bg-red-50 p-2 rounded flex items-center gap-2"><Icons.AlertCircle className="w-4 h-4"/> {error}</div>}
+                                    <Button type="submit" className="w-full h-11 text-base" disabled={loading}>{loading ? '驗證中...' : '登入'}</Button>
+                                </form>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            );
+        };
+
         function App() {
+            // Auth State
+            const [user, setUser] = useState(null);
+            const [authLoading, setAuthLoading] = useState(true);
+            const [loginError, setLoginError] = useState('');
+
+            // App State
             const [viewMode, setViewMode] = useState('individual');
             const [currentYear, setCurrentYear] = useState(114);
             const [currentQuarter, setCurrentQuarter] = useState('Q1');
@@ -283,25 +336,59 @@
             const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
             const [editingStaff, setEditingStaff] = useState(null);
             const fileInputRef = useRef(null);
-            const [loading, setLoading] = useState(true);
+            const [dataLoading, setDataLoading] = useState(false);
             const [saving, setSaving] = useState(false);
 
+            // Auth Listener
             useEffect(() => {
-                if (!window.FirebaseAPI) return;
-                const unsubscribe = window.FirebaseAPI.subscribe((data) => {
-                    if (data) { setStaffList(data.staffList || []); setAllData(data.allData || {}); }
-                    setLoading(false);
+                const unsubscribe = window.FirebaseAPI.onAuthStateChanged((u) => {
+                    setUser(u);
+                    setAuthLoading(false);
+                    if (u) {
+                        setDataLoading(true);
+                        window.FirebaseAPI.subscribe((data) => {
+                            if (data) { setStaffList(data.staffList || []); setAllData(data.allData || {}); }
+                            setDataLoading(false);
+                        });
+                    }
                 });
                 return () => unsubscribe();
             }, []);
 
             useEffect(() => {
-                if (!selectedStaffId && staffList.length > 0 && !loading) setSelectedStaffId(staffList[0].id);
-            }, [staffList, loading, selectedStaffId]);
+                if (user && !selectedStaffId && staffList.length > 0 && !dataLoading) setSelectedStaffId(staffList[0].id);
+            }, [staffList, dataLoading, selectedStaffId, user]);
+
+            const handleLogin = async (email, password) => {
+                setLoginError('');
+                try {
+                    await window.FirebaseAPI.login(email, password);
+                } catch (err) {
+                    console.error(err);
+                    setLoginError("登入失敗：帳號或密碼錯誤 (請確認後台是否啟用 Email 登入)");
+                }
+            };
+
+            const handleGoogleLogin = async () => {
+                setLoginError('');
+                try {
+                    await window.FirebaseAPI.loginGoogle();
+                } catch (err) {
+                    console.error(err);
+                    setLoginError("Google 登入失敗 (請確認後台是否啟用 Google 登入)");
+                }
+            };
+
+            const handleLogout = () => {
+                window.FirebaseAPI.logout();
+                setStaffList([]);
+                setAllData({});
+            };
 
             const saveToFirebase = async (newList, newData) => {
+                if (!user) return;
                 setSaving(true);
-                await window.FirebaseAPI.saveAll(newList, newData);
+                await window.FirebaseAPI.saveAll(newList, newData, user.email);
                 setSaving(false);
             };
 
@@ -366,10 +453,10 @@
             };
 
             const downloadData = () => {
-                const blob = new Blob([JSON.stringify({ staffList, allData, version: "v4_firebase" }, null, 2)], { type: "application/json" });
+                const blob = new Blob([JSON.stringify({ staffList, allData, version: "v5_auth" }, null, 2)], { type: "application/json" });
                 const a = document.createElement("a");
                 a.href = URL.createObjectURL(blob);
-                a.download = `居服員考核雲端備份_${new Date().toISOString().slice(0,10)}.json`;
+                a.download = `考核系統備份_${new Date().toISOString().slice(0,10)}.json`;
                 document.body.appendChild(a); a.click(); document.body.removeChild(a);
             };
 
@@ -377,22 +464,36 @@
             const recordKey = selectedStaffId ? getRecordKey(selectedStaffId, currentYear, currentQuarter) : null;
             const currentRecord = allData[recordKey] || {};
 
-            if (loading) return <div className="h-screen w-full flex items-center justify-center bg-slate-50 text-slate-500 font-bold animate-pulse">連線雲端資料庫中...</div>;
+            if (authLoading) return <div className="h-screen w-full flex items-center justify-center bg-slate-900 text-white font-bold animate-pulse">系統啟動中...</div>;
+
+            if (!user) return <LoginPage onLogin={handleLogin} onGoogleLogin={handleGoogleLogin} loading={authLoading} error={loginError} />;
+
+            if (dataLoading) return <div className="h-screen w-full flex items-center justify-center bg-slate-50 text-slate-500 font-bold animate-pulse">正在同步雲端資料...</div>;
 
             return (
                 <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
                     <header className="bg-white border-b px-6 py-4 flex items-center justify-between sticky top-0 z-20 shadow-sm">
                         <div className="flex items-center gap-3">
                             <div className="bg-blue-600 p-2 rounded-lg"><Icons.Cloud className="h-5 w-5 text-white" /></div>
-                            <h1 className="text-xl font-bold text-slate-800 hidden md:block">光祐居服員考核系統 <span className="text-sm font-normal text-slate-500 ml-2">v4.1 補登版</span></h1>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <div className="flex bg-slate-100 rounded p-1 mr-4">
-                                <button onClick={() => setViewMode('individual')} className={`px-3 py-1 text-sm rounded transition-all flex items-center gap-1 ${viewMode==='individual' ? 'bg-white shadow text-blue-700 font-bold' : 'text-slate-500'}`}><Icons.Users className="w-4 h-4"/> 個別考核</button>
-                                <button onClick={() => setViewMode('ranking')} className={`px-3 py-1 text-sm rounded transition-all flex items-center gap-1 ${viewMode==='ranking' ? 'bg-white shadow text-blue-700 font-bold' : 'text-slate-500'}`}><Icons.BarChart className="w-4 h-4"/> 季度排名與獎金</button>
+                            <div>
+                                <h1 className="text-xl font-bold text-slate-800 hidden md:block">光祐居服員考核系統 <span className="text-xs font-normal text-slate-500 ml-2 bg-slate-100 px-2 py-0.5 rounded-full">v6.0 雲端版</span></h1>
+                                <p className="text-xs text-slate-400 md:hidden">v6.0 Mobile</p>
                             </div>
-                            <select value={currentYear} onChange={(e) => setCurrentYear(Number(e.target.value))} className="h-9 rounded border border-slate-300 px-3 text-sm font-bold bg-slate-50"><option value={113}>113年</option><option value={114}>114年</option><option value={115}>115年</option></select>
-                            <div className="flex bg-slate-100 rounded p-1">{['Q1','Q2','Q3','Q4','ANNUAL'].map(q => (<button key={q} onClick={() => setCurrentQuarter(q)} className={`px-3 py-1 text-sm rounded transition-all ${currentQuarter===q ? 'bg-white shadow text-blue-700 font-bold' : 'text-slate-500 hover:text-slate-900'}`}>{q === 'ANNUAL' ? '年度總評' : q}</button>))}</div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <div className="hidden md:flex items-center text-xs text-slate-500 border-r pr-4 mr-2">
+                                <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span>
+                                {user.email}
+                            </div>
+                            <div className="flex bg-slate-100 rounded p-1 mr-2">
+                                <button onClick={() => setViewMode('individual')} className={`px-3 py-1 text-sm rounded transition-all flex items-center gap-1 ${viewMode==='individual' ? 'bg-white shadow text-blue-700 font-bold' : 'text-slate-500'}`}><Icons.Users className="w-4 h-4"/> 個別</button>
+                                <button onClick={() => setViewMode('ranking')} className={`px-3 py-1 text-sm rounded transition-all flex items-center gap-1 ${viewMode==='ranking' ? 'bg-white shadow text-blue-700 font-bold' : 'text-slate-500'}`}><Icons.BarChart className="w-4 h-4"/> 排名</button>
+                            </div>
+                            <div className="flex gap-2">
+                                <select value={currentYear} onChange={(e) => setCurrentYear(Number(e.target.value))} className="h-9 rounded border border-slate-300 px-2 text-sm font-bold bg-slate-50"><option value={113}>113年</option><option value={114}>114年</option><option value={115}>115年</option></select>
+                                <select value={currentQuarter} onChange={(e) => setCurrentQuarter(e.target.value)} className="h-9 rounded border border-slate-300 px-2 text-sm font-bold bg-slate-50"><option value="Q1">Q1</option><option value="Q2">Q2</option><option value="Q3">Q3</option><option value="Q4">Q4</option><option value="ANNUAL">年度</option></select>
+                            </div>
+                            <Button variant="secondary" size="icon" onClick={handleLogout} title="登出"><Icons.LogOut className="w-4 h-4"/></Button>
                         </div>
                     </header>
 
