@@ -3,33 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>光祐居服員考核系統 (v3 排名獎金版)</title>
+    <title>光祐居服員考核系統 (v4 雲端協作版)</title>
     
-    <!-- 引入 React 和 ReactDOM -->
+    <!-- React & Tailwind -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    
-    <!-- 引入 Babel 用於解析 JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- 引入 Tailwind CSS 用於樣式 -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <style>
         body { font-family: "Microsoft JhengHei", "Heiti TC", sans-serif; }
         input[type=number]::-webkit-inner-spin-button, 
-        input[type=number]::-webkit-outer-spin-button { 
-            -webkit-appearance: none; margin: 0; 
-        }
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .saving-indicator { position: fixed; bottom: 10px; right: 10px; font-size: 12px; color: #64748b; }
     </style>
+
+    <!-- Firebase SDK (Module) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // 用戶提供的設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyDkC6kfqpmEeMKIvWIqftounTSH_NPp25M",
+            authDomain: "assessmentsystem-9e2ec.firebaseapp.com",
+            projectId: "assessmentsystem-9e2ec",
+            storageBucket: "assessmentsystem-9e2ec.firebasestorage.app",
+            messagingSenderId: "455151254122",
+            appId: "1:455151254122:web:45787cfce4469bff90e813",
+            measurementId: "G-201C6BE86Z"
+        };
+
+        // 初始化 Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 定義資料庫路徑 (Collection: caregiver_system, Doc: data)
+        const DOC_REF = doc(db, "caregiver_system", "main_data");
+
+        // 將 Firebase 功能掛載到 window 以便 React 使用
+        window.FirebaseAPI = {
+            // 訂閱資料變更 (Real-time listener)
+            subscribe: (onUpdate) => {
+                return onSnapshot(DOC_REF, (docSnap) => {
+                    if (docSnap.exists()) {
+                        onUpdate(docSnap.data());
+                    } else {
+                        // 如果資料庫是空的，初始化它
+                        const initialData = { staffList: [], allData: {} };
+                        setDoc(DOC_REF, initialData);
+                        onUpdate(initialData);
+                    }
+                });
+            },
+            // 儲存完整資料 (Debounced save logic will be in React)
+            saveAll: async (staffList, allData) => {
+                try {
+                    await setDoc(DOC_REF, { staffList, allData }, { merge: true });
+                    return true;
+                } catch (e) {
+                    console.error("儲存失敗:", e);
+                    alert("儲存失敗，請檢查網路連線");
+                    return false;
+                }
+            }
+        };
+    </script>
 </head>
 <body class="bg-slate-50 text-slate-900">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, useRef } = React;
+        const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
-        // --- 1. Icons ---
+        // --- Icons ---
         const Icons = {
             Users: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
             Calculator: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>,
@@ -42,10 +89,12 @@
             Save: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
             Download: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>,
             Upload: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>,
-            BarChart: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg>
+            BarChart: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg>,
+            Cloud: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M17.5 19c0-1.7-1.3-3-3-3h-1.1c-.2-2.3-2.1-4-4.4-4-2.6 0-4.6 2.1-4.6 4.6 0 .3.1.6.2.9C2.7 17.8 1.5 19.5 1.5 21.5c0 2.5 2 4.5 4.5 4.5h11.5c2.5 0 4.5-2 4.5-4.5s-2-4.5-4.5-4.5z"/></svg>,
+            Check: (props) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polyline points="20 6 9 17 4 12"/></svg>
         };
 
-        // --- 2. UI Components ---
+        // --- UI Components ---
         const Card = ({ className, children }) => <div className={`rounded-lg border bg-white text-slate-950 shadow-sm ${className}`}>{children}</div>;
         const CardHeader = ({ className, children }) => <div className={`flex flex-col space-y-1.5 p-6 ${className}`}>{children}</div>;
         const CardTitle = ({ className, children }) => <h3 className={`text-xl font-semibold leading-none tracking-tight ${className}`}>{children}</h3>;
@@ -64,11 +113,7 @@
                 sm: "h-8 rounded-md px-3 text-xs",
                 icon: "h-10 w-10"
             };
-            return (
-                <button disabled={disabled} className={`${baseStyles} ${variants[variant] || variants.default} ${sizes[size] || sizes.default} ${className}`} onClick={onClick} title={title}>
-                    {children}
-                </button>
-            );
+            return <button disabled={disabled} className={`${baseStyles} ${variants[variant] || variants.default} ${sizes[size] || sizes.default} ${className}`} onClick={onClick} title={title}>{children}</button>;
         };
         const Input = ({ className, ...props }) => (
             <input className={`flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${className}`} {...props} />
@@ -98,160 +143,64 @@
             );
         };
 
-        // --- 3. Configuration & Structures ---
+        // --- Structures ---
         const QUARTERLY_STRUCTURE = [
-            {
-                id: 'section1',
-                title: '一、主動性 (30%)',
-                weight: 30,
-                maxRawScore: 35,
-                items: [
-                    { id: '1.1', text: '1.1 期限內繳交服務卡、服務紀錄單' },
-                    { id: '1.2', text: '1.2 每月參加團督會議' },
-                    { id: '1.3', text: '1.3 每月參加在職教育訓練' },
-                    { id: '1.4', text: '1.4 積極提升自我專業能力' },
-                    { id: '1.5', text: '1.5 主動且及時向督導反映個案問題' },
-                    { id: '1.6', text: '1.6 回報特殊事件的積極性' },
-                    { id: '1.7', text: '1.7 主動繳交服務相關費用' },
-                ]
-            },
-            {
-                id: 'section2',
-                title: '二、工作能力 (40%)',
-                weight: 40,
-                maxRawScore: 25,
-                items: [
-                    { id: '2.1', text: '2.1 服務時間準確，無遲到早退' },
-                    { id: '2.2', text: '2.2 APP定位狀況良好' },
-                    { id: '2.3', text: '2.3 工作內容執行正確' },
-                    { id: '2.4', text: '2.4 照顧技巧熟練度與正確性' },
-                    { id: '2.5', text: '2.5 意外事件應變能力' },
-                ]
-            },
-            {
-                id: 'section3',
-                title: '三、紀錄能力 (15%)',
-                weight: 15,
-                maxRawScore: 15,
-                items: [
-                    { id: '3.1', text: '3.1 服務卡書寫清晰完整' },
-                    { id: '3.2', text: '3.2 紀錄單書寫具體詳實' },
-                    { id: '3.3', text: '3.3 修正錯誤表單時效性' },
-                ]
-            },
-            {
-                id: 'section4',
-                title: '四、工作態度 (15%)',
-                weight: 15,
-                maxRawScore: 40,
-                items: [
-                    { id: '4.1', text: '4.1 服務態度佳，互動良好' },
-                    { id: '4.2', text: '4.2 謹守工作倫理與隱私' },
-                    { id: '4.3', text: '4.3 與機構同事保持合作' },
-                    { id: '4.4', text: '4.4 服從督導及機構指導' },
-                    { id: '4.5', text: '4.5 維護機構形象，言行得體' },
-                    { id: '4.6', text: '4.6 情緒管理適當' },
-                    { id: '4.7', text: '4.7 服裝儀容端正' },
-                    { id: '4.8', text: '4.8 配合公司排班規定' },
-                ]
-            }
+            { id: 'section1', title: '一、主動性 (30%)', weight: 30, maxRawScore: 35, items: [{ id: '1.1', text: '1.1 期限內繳交服務卡、服務紀錄單' }, { id: '1.2', text: '1.2 每月參加團督會議' }, { id: '1.3', text: '1.3 每月參加在職教育訓練' }, { id: '1.4', text: '1.4 積極提升自我專業能力' }, { id: '1.5', text: '1.5 主動且及時向督導反映個案問題' }, { id: '1.6', text: '1.6 回報特殊事件的積極性' }, { id: '1.7', text: '1.7 主動繳交服務相關費用' }] },
+            { id: 'section2', title: '二、工作能力 (40%)', weight: 40, maxRawScore: 25, items: [{ id: '2.1', text: '2.1 服務時間準確，無遲到早退' }, { id: '2.2', text: '2.2 APP定位狀況良好' }, { id: '2.3', text: '2.3 工作內容執行正確' }, { id: '2.4', text: '2.4 照顧技巧熟練度與正確性' }, { id: '2.5', text: '2.5 意外事件應變能力' }] },
+            { id: 'section3', title: '三、紀錄能力 (15%)', weight: 15, maxRawScore: 15, items: [{ id: '3.1', text: '3.1 服務卡書寫清晰完整' }, { id: '3.2', text: '3.2 紀錄單書寫具體詳實' }, { id: '3.3', text: '3.3 修正錯誤表單時效性' }] },
+            { id: 'section4', title: '四、工作態度 (15%)', weight: 15, maxRawScore: 40, items: [{ id: '4.1', text: '4.1 服務態度佳，互動良好' }, { id: '4.2', text: '4.2 謹守工作倫理與隱私' }, { id: '4.3', text: '4.3 與機構同事保持合作' }, { id: '4.4', text: '4.4 服從督導及機構指導' }, { id: '4.5', text: '4.5 維護機構形象，言行得體' }, { id: '4.6', text: '4.6 情緒管理適當' }, { id: '4.7', text: '4.7 服裝儀容端正' }, { id: '4.8', text: '4.8 配合公司排班規定' }] }
         ];
 
         const ANNUAL_STRUCTURE = [
-            {
-                id: 'annual_prof',
-                title: '專業與工作態度考核 (48%)',
-                items: [
-                    { id: 'a.1', text: '1. 具備專業知識與照護技巧，錯誤率低', max: 8 },
-                    { id: 'a.2', text: '2. 工作效率高，時效內完成業務', max: 8 },
-                    { id: 'a.3', text: '3. 配合度高，支援交辦事項', max: 8 },
-                    { id: 'a.4', text: '4. 盡心服務，不抱怨，遵守保密隱私', max: 8 },
-                    { id: 'a.5', text: '5. 提出建設性建議，非無故抱怨', max: 8 },
-                    { id: 'a.6', text: '6. 工作負責勤懇，確實遵守公司規定', max: 8 },
-                ]
-            },
-            {
-                id: 'annual_loyalty',
-                title: '向心力與個人素養考核 (37%)',
-                items: [
-                    { id: 'b.1', text: '1. 謙遜有禮，落實職場倫理', max: 7 },
-                    { id: 'b.2', text: '2. 對機構向心力佳，維護信譽', max: 7 },
-                    { id: 'b.3', text: '3. 樂於分享工作技巧，不藏私', max: 8 },
-                    { id: 'b.4', text: '4. 勇於承擔錯誤並修正，不說謊', max: 8 },
-                    { id: 'b.5', text: '5. 以機構最大利益為考量，無違法風險', max: 7 },
-                ]
-            }
+            { id: 'annual_prof', title: '專業與工作態度考核 (48%)', items: [{ id: 'a.1', text: '1. 具備專業知識與照護技巧，錯誤率低', max: 8 }, { id: 'a.2', text: '2. 工作效率高，時效內完成業務', max: 8 }, { id: 'a.3', text: '3. 配合度高，支援交辦事項', max: 8 }, { id: 'a.4', text: '4. 盡心服務，不抱怨，遵守保密隱私', max: 8 }, { id: 'a.5', text: '5. 提出建設性建議，非無故抱怨', max: 8 }, { id: 'a.6', text: '6. 工作負責勤懇，確實遵守公司規定', max: 8 }] },
+            { id: 'annual_loyalty', title: '向心力與個人素養考核 (37%)', items: [{ id: 'b.1', text: '1. 謙遜有禮，落實職場倫理', max: 7 }, { id: 'b.2', text: '2. 對機構向心力佳，維護信譽', max: 7 }, { id: 'b.3', text: '3. 樂於分享工作技巧，不藏私', max: 8 }, { id: 'b.4', text: '4. 勇於承擔錯誤並修正，不說謊', max: 8 }, { id: 'b.5', text: '5. 以機構最大利益為考量，無違法風險', max: 7 }] }
         ];
 
-        // --- 4. Logic Functions (Shared) ---
+        // --- Logic ---
         const getRecordKey = (sId, year, q) => `${sId}_${year}_${q}`;
 
         const calculateQuarterly = (record) => {
             if (!record) return { total: 0, details: [], bonus: 0, penalty: 0 };
             const scores = record.scores || {};
             const bonusData = record.bonus || {};
-            
-            let totalWeighted = 0;
-            let details = [];
-
+            let totalWeighted = 0, details = [];
             QUARTERLY_STRUCTURE.forEach(section => {
                 let rawSum = 0;
                 section.items.forEach(item => {
                     const s = scores[item.id] || {};
-                    const itemVal = ((s.self||0)*0.05) + ((s.sup||0)*0.60) + ((s.dir||0)*0.35);
-                    rawSum += itemVal;
+                    rawSum += ((s.self||0)*0.05) + ((s.sup||0)*0.60) + ((s.dir||0)*0.35);
                 });
                 const weighted = (rawSum / section.maxRawScore) * section.weight;
                 totalWeighted += weighted;
                 details.push({ title: section.title, raw: rawSum.toFixed(2), weighted: weighted.toFixed(2) });
             });
-
             const bNewStaff = Math.min((bonusData.newStaff||0)*1, 2);
             const bNewCase = Math.min((bonusData.newCase||0)*0.5, 2);
             const bInnovation = Math.min((bonusData.innovation||0), 2);
             const pAudit = (bonusData.auditError||0)*3;
             const pComplaint = (bonusData.complaint||0)*2;
-
             const final = totalWeighted + bNewStaff + bNewCase + bInnovation - pAudit - pComplaint;
             return { total: final.toFixed(2), details, bonusData, isNewHire: record.isNewHire };
         };
 
         const calculateAnnual = (sId, year, allData) => {
-            let qSum = 0;
-            let qCount = 0;
-            let qDetails = [];
-            
+            let qSum = 0, qCount = 0, qDetails = [];
             ['Q1', 'Q2', 'Q3', 'Q4'].forEach(q => {
                 const key = getRecordKey(sId, year, q);
                 const record = allData[key];
                 if (record && !record.isNewHire) {
                     const res = calculateQuarterly(record);
                     const val = parseFloat(res.total);
-                    if (!isNaN(val) && val > 0) {
-                        qSum += val;
-                        qCount++;
-                        qDetails.push({ q, val });
-                    }
-                } else if (record && record.isNewHire) {
-                    qDetails.push({ q, val: '新進(不計)' });
-                } else {
-                    qDetails.push({ q, val: '-' });
-                }
+                    if (!isNaN(val) && val > 0) { qSum += val; qCount++; qDetails.push({ q, val }); }
+                } else if (record && record.isNewHire) { qDetails.push({ q, val: '新進(不計)' }); } else { qDetails.push({ q, val: '-' }); }
             });
-
             const qAvg = qCount > 0 ? (qSum / qCount) : 0;
             const annualFromQuarter = qAvg * 0.15;
-
             const annualKey = getRecordKey(sId, year, 'ANNUAL');
             const record = allData[annualKey] || {};
             const scores = record.scores || {};
             const bonus = record.bonus || {};
-
-            let totalMax = 0;
-            let sumSelf = 0;
-            let sumSup = 0;
-            let sumDir = 0;
-
+            let totalMax = 0, sumSelf = 0, sumSup = 0, sumDir = 0;
             ANNUAL_STRUCTURE.forEach(sec => {
                 sec.items.forEach(item => {
                     totalMax += item.max;
@@ -261,258 +210,100 @@
                     sumDir += parseFloat(s.dir || 0);
                 });
             });
-
             const scoreSelf = totalMax > 0 ? (sumSelf / totalMax) * 10 : 0;
             const scoreSup = totalMax > 0 ? (sumSup / totalMax) * 50 : 0;
             const scoreDir = totalMax > 0 ? (sumDir / totalMax) * 25 : 0;
-
             const annualAssessmentScore = scoreSelf + scoreSup + scoreDir;
-
-            const attDeduct = 
-                ((bonus.late || 0) * 1) + 
-                ((bonus.early || 0) * 1) + 
-                ((bonus.absent || 0) * 1) +
-                ((bonus.forgot || 0) * 1) +
-                ((bonus.gps || 0) * 1);
-            
-            const rewardsScore = 
-                ((bonus.commendation1 || 0) * 1) + 
-                ((bonus.commendation2 || 0) * 3) + 
-                ((bonus.commendation3 || 0) * 9) -
-                ((bonus.warning || 0) * 1) -
-                ((bonus.minor || 0) * 3) -
-                ((bonus.major || 0) * 9);
-
+            const attDeduct = ((bonus.late || 0) * 1) + ((bonus.early || 0) * 1) + ((bonus.absent || 0) * 1) + ((bonus.forgot || 0) * 1) + ((bonus.gps || 0) * 1);
+            const rewardsScore = ((bonus.commendation1 || 0) * 1) + ((bonus.commendation2 || 0) * 3) + ((bonus.commendation3 || 0) * 9) - ((bonus.warning || 0) * 1) - ((bonus.minor || 0) * 3) - ((bonus.major || 0) * 9);
             const final = annualFromQuarter + annualAssessmentScore + rewardsScore - attDeduct;
-
-            return {
-                qDetails,
-                qAvg: qAvg.toFixed(2),
-                annualFromQuarter: annualFromQuarter.toFixed(2),
-                scoreSelf: scoreSelf.toFixed(2),
-                scoreSup: scoreSup.toFixed(2),
-                scoreDir: scoreDir.toFixed(2),
-                annualAssessmentScore: annualAssessmentScore.toFixed(2),
-                attDeduct,
-                rewardsScore,
-                final: final.toFixed(2),
-                bonus
-            };
+            return { qDetails, qAvg: qAvg.toFixed(2), annualFromQuarter: annualFromQuarter.toFixed(2), scoreSelf: scoreSelf.toFixed(2), scoreSup: scoreSup.toFixed(2), scoreDir: scoreDir.toFixed(2), annualAssessmentScore: annualAssessmentScore.toFixed(2), attDeduct, rewardsScore, final: final.toFixed(2), bonus };
         };
 
-        // --- 5. Ranking View Component ---
         const RankingView = ({ staffList, allData, currentYear, currentQuarter }) => {
             const [data, setData] = useState([]);
-
             useEffect(() => {
                 if (currentQuarter === 'ANNUAL') return;
-
-                // 1. Calculate scores for everyone in this period
                 const calculated = staffList.map(staff => {
-                    // Check logic for resignation (simplified)
                     const key = getRecordKey(staff.id, currentYear, currentQuarter);
                     const record = allData[key];
                     if (!record) return { ...staff, score: 0, isNewHire: false };
-                    
                     const res = calculateQuarterly(record);
-                    return {
-                        ...staff,
-                        score: parseFloat(res.total),
-                        isNewHire: record.isNewHire
-                    };
-                }).filter(s => s.score > 0); // Only show people with scores
-
-                // 2. Sort DESC
+                    return { ...staff, score: parseFloat(res.total), isNewHire: record.isNewHire };
+                }).filter(s => s.score > 0);
                 calculated.sort((a, b) => b.score - a.score);
-
-                // 3. Assign Ranks & Calculate Bonuses
                 const totalActiveStaff = calculated.length;
                 const top20Count = Math.ceil(totalActiveStaff * 0.2);
-
                 const finalData = calculated.map((item, index) => {
                     const rank = index + 1;
                     const score = item.score;
-                    let baseBonus = 0;
-                    let extraBonus = 0;
-                    let rankBonus = 0;
-
-                    // Base Rules
-                    if (score >= 85) baseBonus = 1500;
-                    else if (score >= 75) baseBonus = 1000;
-                    else if (score >= 70) baseBonus = 500;
-                    
-                    // Extra Rules
-                    if (score > 90) extraBonus += 500;
-                    if (score > 95) extraBonus += 500;
-
-                    // Rank Rule (Top 20%)
+                    let baseBonus = 0, extraBonus = 0, rankBonus = 0;
+                    if (score >= 85) baseBonus = 1500; else if (score >= 75) baseBonus = 1000; else if (score >= 70) baseBonus = 500;
+                    if (score > 90) extraBonus += 500; if (score > 95) extraBonus += 500;
                     if (rank <= top20Count) rankBonus = 500;
-
-                    return {
-                        ...item,
-                        rank,
-                        baseBonus,
-                        extraBonus,
-                        rankBonus,
-                        totalBonus: baseBonus + extraBonus + rankBonus
-                    };
+                    return { ...item, rank, baseBonus, extraBonus, rankBonus, totalBonus: baseBonus + extraBonus + rankBonus };
                 });
-
                 setData(finalData);
-
             }, [staffList, allData, currentYear, currentQuarter]);
 
-            if (currentQuarter === 'ANNUAL') {
-                return <div className="p-8 text-center text-slate-500">年度總評請使用個別考核頁面查看詳細報表，此功能僅支援季度獎金計算。</div>;
-            }
-
+            if (currentQuarter === 'ANNUAL') return <div className="p-8 text-center text-slate-500">年度總評請使用個別考核頁面查看詳細報表，此功能僅支援季度獎金計算。</div>;
             return (
                 <div className="space-y-6 animate-in fade-in">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50 border-b">
-                            <div>
-                                <CardTitle className="text-xl font-bold flex items-center gap-2">
-                                    <Icons.BarChart className="text-blue-600"/> 
-                                    {currentYear}年 {currentQuarter} 季度獎金排名表
-                                </CardTitle>
-                                <p className="text-sm text-slate-500 mt-1">
-                                    總計 {data.length} 位受評人員，前 20% (名次 &le; {Math.ceil(data.length * 0.2)}) 享有排名獎金
-                                </p>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-xs text-slate-500">預估發放總獎金</div>
-                                <div className="text-2xl font-bold font-mono text-green-600">
-                                    ${data.reduce((acc, curr) => acc + curr.totalBonus, 0).toLocaleString()}
-                                </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-slate-100 text-slate-600 uppercase font-bold text-xs">
-                                        <tr>
-                                            <th className="px-4 py-3 w-16 text-center">排名</th>
-                                            <th className="px-4 py-3">姓名</th>
-                                            <th className="px-4 py-3 text-right">總分</th>
-                                            <th className="px-4 py-3 text-right">級距獎金</th>
-                                            <th className="px-4 py-3 text-right">高分加給</th>
-                                            <th className="px-4 py-3 text-right">排名加給</th>
-                                            <th className="px-4 py-3 text-right text-green-700 bg-green-50">總獎金</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {data.map((row) => (
-                                            <tr key={row.id} className="hover:bg-slate-50">
-                                                <td className="px-4 py-3 text-center font-bold text-slate-500">
-                                                    {row.rank === 1 ? <span className="text-yellow-500 text-lg">🥇</span> : 
-                                                     row.rank === 2 ? <span className="text-slate-400 text-lg">🥈</span> : 
-                                                     row.rank === 3 ? <span className="text-amber-600 text-lg">🥉</span> : row.rank}
-                                                </td>
-                                                <td className="px-4 py-3 font-medium">
-                                                    {row.name}
-                                                    {row.isNewHire && <Badge variant="warning" className="ml-2">新進</Badge>}
-                                                </td>
-                                                <td className="px-4 py-3 text-right font-mono font-bold">{row.score.toFixed(2)}</td>
-                                                <td className="px-4 py-3 text-right text-slate-500">${row.baseBonus}</td>
-                                                <td className="px-4 py-3 text-right text-slate-500">
-                                                    {row.extraBonus > 0 ? `+$${row.extraBonus}` : '-'}
-                                                </td>
-                                                <td className="px-4 py-3 text-right text-slate-500">
-                                                    {row.rankBonus > 0 ? <span className="text-blue-600 font-bold">+$500</span> : '-'}
-                                                </td>
-                                                <td className="px-4 py-3 text-right font-bold text-green-700 bg-green-50">
-                                                    ${row.totalBonus.toLocaleString()}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {data.length === 0 && (
-                                            <tr><td colSpan="7" className="p-8 text-center text-slate-400">本季尚無評分資料</td></tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </CardContent>
-                    </Card>
-                    <div className="bg-yellow-50 p-4 rounded text-sm text-slate-700 border border-yellow-100">
-                        <h4 className="font-bold mb-2">💡 獎金計算規則說明：</h4>
-                        <ul className="list-disc pl-5 space-y-1">
-                            <li><strong>基本獎金：</strong> 85分以上 $1500 / 75~84分 $1000 / 70~74分 $500 / 70分以下 $0。</li>
-                            <li><strong>高分加給：</strong> 超過90分多 $500 (共$2000)，超過95分再多 $500 (共$2500)。</li>
-                            <li><strong>排名加給：</strong> 分數排名前 20% 者，額外發放 $500。</li>
-                        </ul>
-                    </div>
+                    <Card><CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50 border-b">
+                        <div><CardTitle className="text-xl font-bold flex items-center gap-2"><Icons.BarChart className="text-blue-600"/> {currentYear}年 {currentQuarter} 季度獎金排名表</CardTitle><p className="text-sm text-slate-500 mt-1">總計 {data.length} 位受評人員，前 20% (名次 &le; {Math.ceil(data.length * 0.2)}) 享有排名獎金</p></div>
+                        <div className="text-right"><div className="text-xs text-slate-500">預估發放總獎金</div><div className="text-2xl font-bold font-mono text-green-600">${data.reduce((acc, curr) => acc + curr.totalBonus, 0).toLocaleString()}</div></div>
+                    </CardHeader><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600 uppercase font-bold text-xs"><tr><th className="px-4 py-3 w-16 text-center">排名</th><th className="px-4 py-3">姓名</th><th className="px-4 py-3 text-right">總分</th><th className="px-4 py-3 text-right">級距獎金</th><th className="px-4 py-3 text-right">高分加給</th><th className="px-4 py-3 text-right">排名加給</th><th className="px-4 py-3 text-right text-green-700 bg-green-50">總獎金</th></tr></thead><tbody className="divide-y divide-slate-100">{data.map(row => (<tr key={row.id} className="hover:bg-slate-50"><td className="px-4 py-3 text-center font-bold text-slate-500">{row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : row.rank}</td><td className="px-4 py-3 font-medium">{row.name}{row.isNewHire && <Badge variant="warning" className="ml-2">新進</Badge>}</td><td className="px-4 py-3 text-right font-mono font-bold">{row.score.toFixed(2)}</td><td className="px-4 py-3 text-right text-slate-500">${row.baseBonus}</td><td className="px-4 py-3 text-right text-slate-500">{row.extraBonus > 0 ? `+$${row.extraBonus}` : '-'}</td><td className="px-4 py-3 text-right text-slate-500">{row.rankBonus > 0 ? <span className="text-blue-600 font-bold">+$500</span> : '-'}</td><td className="px-4 py-3 text-right font-bold text-green-700 bg-green-50">${row.totalBonus.toLocaleString()}</td></tr>))}</tbody></table></div></CardContent></Card>
                 </div>
             );
         };
 
-        // --- 6. Main App ---
+        // --- Main App ---
         function App() {
-            // State
-            const [viewMode, setViewMode] = useState('individual'); // 'individual' or 'ranking'
+            const [viewMode, setViewMode] = useState('individual');
             const [currentYear, setCurrentYear] = useState(114);
             const [currentQuarter, setCurrentQuarter] = useState('Q1');
-            
-            const [staffList, setStaffList] = useState(() => {
-                const saved = localStorage.getItem('v2_staff_list');
-                return saved ? JSON.parse(saved) : [{ id: 1, name: '範例居服員', onboardDate: '113-01-01', resignDate: '' }];
-            });
+            const [staffList, setStaffList] = useState([]);
             const [selectedStaffId, setSelectedStaffId] = useState(null);
-            
-            const [allData, setAllData] = useState(() => {
-                const saved = localStorage.getItem('v2_all_data');
-                return saved ? JSON.parse(saved) : {};
-            });
-
+            const [allData, setAllData] = useState({});
             const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
             const [editingStaff, setEditingStaff] = useState(null);
             const fileInputRef = useRef(null);
+            
+            // Loading State
+            const [loading, setLoading] = useState(true);
+            const [saving, setSaving] = useState(false);
 
-            // Persist Data
-            useEffect(() => { localStorage.setItem('v2_staff_list', JSON.stringify(staffList)); }, [staffList]);
-            useEffect(() => { localStorage.setItem('v2_all_data', JSON.stringify(allData)); }, [allData]);
-
+            // Firebase Subscription
             useEffect(() => {
-                if (!selectedStaffId && staffList.length > 0) setSelectedStaffId(staffList[0].id);
-            }, [staffList]);
-
-            // --- Handlers: Data Persistence ---
-            const downloadData = () => {
-                const dataStr = JSON.stringify({ staffList, allData, version: "v3" }, null, 2);
-                const blob = new Blob([dataStr], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `居服員考核備份_${new Date().toISOString().slice(0,10)}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-            };
-
-            const handleFileUpload = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    try {
-                        const parsed = JSON.parse(evt.target.result);
-                        if (parsed.staffList && parsed.allData) {
-                            if(confirm("確定要匯入此檔案嗎？這將會覆蓋當前所有資料。")) {
-                                setStaffList(parsed.staffList);
-                                setAllData(parsed.allData);
-                                alert("匯入成功！");
-                            }
-                        } else {
-                            alert("檔案格式錯誤");
-                        }
-                    } catch (err) {
-                        alert("讀取檔案失敗");
+                if (!window.FirebaseAPI) {
+                    alert("Firebase SDK 未載入");
+                    return;
+                }
+                const unsubscribe = window.FirebaseAPI.subscribe((data) => {
+                    console.log("收到雲端資料更新", data);
+                    if (data) {
+                        setStaffList(data.staffList || []);
+                        setAllData(data.allData || {});
                     }
-                };
-                reader.readAsText(file);
-                e.target.value = null; // reset
+                    setLoading(false);
+                });
+                return () => unsubscribe(); // Cleanup listener on unmount
+            }, []);
+
+            // Auto-select first staff
+            useEffect(() => {
+                if (!selectedStaffId && staffList.length > 0 && !loading) {
+                    setSelectedStaffId(staffList[0].id);
+                }
+            }, [staffList, loading, selectedStaffId]);
+
+            // Save Function (Debounced ideally, but direct for simplicity)
+            const saveToFirebase = async (newList, newData) => {
+                setSaving(true);
+                const success = await window.FirebaseAPI.saveAll(newList, newData);
+                setSaving(false);
             };
 
-            // --- Handlers: Staff & Scores ---
             const getStaffStatus = (staff, year, quarter) => {
                 if (!staff.resignDate) return 'active';
                 const [rY, rM] = staff.resignDate.split('-').map(Number);
@@ -534,36 +325,85 @@
                     onboardDate: formData.get('onboardDate'),
                     resignDate: formData.get('resignDate'),
                 };
+                let newList;
                 if (editingStaff) {
-                    setStaffList(prev => prev.map(s => s.id === editingStaff.id ? newStaff : s));
+                    newList = staffList.map(s => s.id === editingStaff.id ? newStaff : s);
                 } else {
-                    setStaffList(prev => [...prev, newStaff]);
+                    newList = [...staffList, newStaff];
                     setSelectedStaffId(newStaff.id);
                 }
+                setStaffList(newList);
+                saveToFirebase(newList, allData);
                 setIsStaffModalOpen(false);
                 setEditingStaff(null);
             };
 
             const handleDeleteStaff = (id) => {
-                if(confirm('確定刪除此員工資料？相關考核紀錄將保留但無法存取。')) {
-                    setStaffList(prev => prev.filter(s => s.id !== id));
+                if(confirm('確定刪除此員工資料？(注意：這會同步刪除雲端上的名單)')) {
+                    const newList = staffList.filter(s => s.id !== id);
+                    setStaffList(newList);
                     if (selectedStaffId === id) setSelectedStaffId(null);
+                    saveToFirebase(newList, allData);
                 }
             };
 
+            // Unified Update Logic
+            const updateAndSave = (newData) => {
+                setAllData(newData);
+                saveToFirebase(staffList, newData);
+            };
+
             const updateRecord = (key, field, value) => {
-                setAllData(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }));
+                const newData = { ...allData, [key]: { ...allData[key], [field]: value } };
+                updateAndSave(newData);
             };
-
             const updateBonus = (key, field, val) => {
-                let num = val === '' ? '' : parseFloat(val);
-                setAllData(prev => ({ ...prev, [key]: { ...prev[key], bonus: { ...prev[key]?.bonus, [field]: num } } }));
+                const num = val === '' ? '' : parseFloat(val);
+                const newData = { ...allData, [key]: { ...allData[key], bonus: { ...allData[key]?.bonus, [field]: num } } };
+                updateAndSave(newData);
             };
-
             const updateScore = (key, itemId, role, val) => {
                 let num = val === '' ? '' : parseFloat(val);
                 if (num !== '' && num > 100) num = 100;
-                setAllData(prev => ({ ...prev, [key]: { ...prev[key], scores: { ...prev[key]?.scores, [itemId]: { ...prev[key]?.scores?.[itemId], [role]: num } } } }));
+                const newData = { ...allData, [key]: { ...allData[key], scores: { ...allData[key]?.scores, [itemId]: { ...allData[key]?.scores?.[itemId], [role]: num } } } };
+                updateAndSave(newData);
+            };
+
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const parsed = JSON.parse(evt.target.result);
+                        if (parsed.staffList && parsed.allData) {
+                            if(confirm("確定要匯入此檔案嗎？這將會覆蓋【雲端資料庫】的所有內容！")) {
+                                setStaffList(parsed.staffList);
+                                setAllData(parsed.allData);
+                                saveToFirebase(parsed.staffList, parsed.allData);
+                                alert("匯入並上傳雲端成功！");
+                            }
+                        } else {
+                            alert("檔案格式錯誤");
+                        }
+                    } catch (err) {
+                        alert("讀取檔案失敗");
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = null;
+            };
+
+            const downloadData = () => {
+                const dataStr = JSON.stringify({ staffList, allData, version: "v4_firebase" }, null, 2);
+                const blob = new Blob([dataStr], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `居服員考核雲端備份_${new Date().toISOString().slice(0,10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
             };
 
             // Current View Vars
@@ -571,187 +411,29 @@
             const recordKey = selectedStaffId ? getRecordKey(selectedStaffId, currentYear, currentQuarter) : null;
             const currentRecord = allData[recordKey] || {};
 
-            // --- Render Logic ---
-            const renderQuarterlyForm = () => {
-                const result = calculateQuarterly(currentRecord);
-                return (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        <div className="flex items-center space-x-2 bg-yellow-50 p-3 rounded border border-yellow-200">
-                            <input 
-                                type="checkbox" id="isNewHire"
-                                checked={currentRecord.isNewHire || false}
-                                onChange={(e) => updateRecord(recordKey, 'isNewHire', e.target.checked)}
-                                className="w-4 h-4 text-blue-600 rounded"
-                            />
-                            <label htmlFor="isNewHire" className="text-sm font-medium text-slate-800">
-                                此考核為「新進人員/試用期」考核 (勾選後，此分數將<span className="text-red-600 font-bold">不列入</span>年度平均計算)
-                            </label>
-                        </div>
-                        <div className="grid md:grid-cols-2 gap-4">
-                            <div className="space-y-4">
-                                <Card><CardContent className="pt-6">
-                                    <h3 className="font-bold mb-4 flex items-center gap-2"><Icons.Trophy className="h-4 w-4 text-amber-500"/> 加扣分</h3>
-                                    <div className="grid grid-cols-2 gap-4 text-sm">
-                                        <label>介紹新人 (人)</label><Input type="number" value={currentRecord.bonus?.newStaff||''} onChange={e=>updateBonus(recordKey, 'newStaff', e.target.value)} />
-                                        <label>介紹個案 (案)</label><Input type="number" value={currentRecord.bonus?.newCase||''} onChange={e=>updateBonus(recordKey, 'newCase', e.target.value)} />
-                                        <label>創新經驗 (分)</label><Input type="number" value={currentRecord.bonus?.innovation||''} onChange={e=>updateBonus(recordKey, 'innovation', e.target.value)} />
-                                        <label className="text-red-600">稽核異常 (項)</label><Input type="number" value={currentRecord.bonus?.auditError||''} onChange={e=>updateBonus(recordKey, 'auditError', e.target.value)} />
-                                        <label className="text-red-600">申訴屬實 (案)</label><Input type="number" value={currentRecord.bonus?.complaint||''} onChange={e=>updateBonus(recordKey, 'complaint', e.target.value)} />
-                                    </div>
-                                </CardContent></Card>
-                                {QUARTERLY_STRUCTURE.map(sec => (
-                                    <Card key={sec.id}><CardHeader className="py-3 bg-slate-50"><CardTitle className="text-base">{sec.title}</CardTitle></CardHeader>
-                                    <CardContent className="p-0">
-                                        <table className="w-full text-sm">
-                                            <thead className="bg-slate-100 text-xs text-slate-500">
-                                                <tr><th className="p-2 text-left">項目</th><th className="w-12 text-center">自評</th><th className="w-12 text-center">督導</th><th className="w-12 text-center">主任</th></tr>
-                                            </thead>
-                                            <tbody className="divide-y">
-                                                {sec.items.map(item => {
-                                                    const s = currentRecord.scores?.[item.id] || {};
-                                                    return (
-                                                        <tr key={item.id}>
-                                                            <td className="p-2">{item.text}</td>
-                                                            <td className="p-1"><Input className="text-center px-0" value={s.self||''} onChange={e=>updateScore(recordKey, item.id, 'self', e.target.value)} /></td>
-                                                            <td className="p-1"><Input className="text-center px-0 bg-blue-50" value={s.sup||''} onChange={e=>updateScore(recordKey, item.id, 'sup', e.target.value)} /></td>
-                                                            <td className="p-1"><Input className="text-center px-0" value={s.dir||''} onChange={e=>updateScore(recordKey, item.id, 'dir', e.target.value)} /></td>
-                                                        </tr>
-                                                    )
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </CardContent></Card>
-                                ))}
-                            </div>
-                            <div className="space-y-4">
-                                <Card className="bg-slate-800 text-white border-none sticky top-4">
-                                    <CardHeader><CardTitle>本季成績單</CardTitle></CardHeader>
-                                    <CardContent>
-                                        <div className="text-5xl font-bold font-mono text-center mb-4">{result.total}</div>
-                                        <div className="space-y-2 text-sm text-slate-300">
-                                            {result.details.map((d,i) => (
-                                                <div key={i} className="flex justify-between border-b border-slate-700 pb-1"><span>{d.title}</span><span>{d.weighted}</span></div>
-                                            ))}
-                                        </div>
-                                        {currentRecord.isNewHire && <div className="mt-4 text-center bg-yellow-500/20 text-yellow-300 py-1 rounded">試用期 / 不計入年度</div>}
-                                    </CardContent>
-                                </Card>
-                            </div>
-                        </div>
-                    </div>
-                );
-            };
-
-            const renderAnnualForm = () => {
-                const res = calculateAnnual(selectedStaffId, currentYear, allData);
-                const scores = currentRecord.scores || {};
-                const bonus = currentRecord.bonus || {};
-                return (
-                    <div className="space-y-6 animate-in fade-in duration-300">
-                        <Card>
-                            <CardHeader className="py-3 bg-blue-50"><CardTitle className="text-base text-blue-800">1. 季考核成績匯總 (佔15%)</CardTitle></CardHeader>
-                            <CardContent className="pt-4">
-                                <div className="flex justify-between items-center text-sm mb-2">
-                                    {res.qDetails.map(q => (
-                                        <div key={q.q} className="text-center p-2 bg-slate-100 rounded min-w-[60px]">
-                                            <div className="text-slate-500 font-bold">{q.q}</div>
-                                            <div className="font-mono">{typeof q.val === 'number' ? q.val.toFixed(1) : q.val}</div>
-                                        </div>
-                                    ))}
-                                    <div className="text-xl font-bold text-blue-600 px-4">Avg: {res.qAvg} <span className="text-sm text-slate-400">x 15% = </span> {res.annualFromQuarter}</div>
-                                </div>
-                            </CardContent>
-                        </Card>
-                        <div className="grid md:grid-cols-3 gap-6">
-                            <div className="md:col-span-2 space-y-6">
-                                <Card><CardHeader className="py-3 bg-slate-50"><CardTitle className="text-base">2. 出勤與獎懲</CardTitle></CardHeader>
-                                    <CardContent className="pt-4 grid grid-cols-1 gap-4">
-                                        <div className="bg-red-50 p-3 rounded">
-                                            <h4 className="font-bold text-red-800 text-sm mb-2">出勤扣分 (次/天)</h4>
-                                            <div className="grid grid-cols-5 gap-2 text-sm">
-                                                <div><label>遲到早退</label><Input type="number" value={bonus.late||''} onChange={e=>updateBonus(recordKey, 'late', e.target.value)} /></div>
-                                                <div><label>曠班</label><Input type="number" value={bonus.absent||''} onChange={e=>updateBonus(recordKey, 'absent', e.target.value)} /></div>
-                                                <div><label>請假</label><Input type="number" value={bonus.leave||''} onChange={e=>updateBonus(recordKey, 'leave', e.target.value)} /></div>
-                                                <div><label>忘記簽退</label><Input type="number" value={bonus.forgot||''} onChange={e=>updateBonus(recordKey, 'forgot', e.target.value)} /></div>
-                                                <div><label>GPS異常</label><Input type="number" value={bonus.gps||''} onChange={e=>updateBonus(recordKey, 'gps', e.target.value)} /></div>
-                                            </div>
-                                        </div>
-                                        <div className="bg-green-50 p-3 rounded">
-                                            <h4 className="font-bold text-green-800 text-sm mb-2">獎懲狀況 (支)</h4>
-                                            <div className="grid grid-cols-6 gap-2 text-sm">
-                                                <div><label>嘉獎</label><Input type="number" value={bonus.commendation1||''} onChange={e=>updateBonus(recordKey, 'commendation1', e.target.value)} /></div>
-                                                <div><label>小功</label><Input type="number" value={bonus.commendation2||''} onChange={e=>updateBonus(recordKey, 'commendation2', e.target.value)} /></div>
-                                                <div><label>大功</label><Input type="number" value={bonus.commendation3||''} onChange={e=>updateBonus(recordKey, 'commendation3', e.target.value)} /></div>
-                                                <div><label>申誡</label><Input type="number" value={bonus.warning||''} onChange={e=>updateBonus(recordKey, 'warning', e.target.value)} /></div>
-                                                <div><label>小過</label><Input type="number" value={bonus.minor||''} onChange={e=>updateBonus(recordKey, 'minor', e.target.value)} /></div>
-                                                <div><label>大過</label><Input type="number" value={bonus.major||''} onChange={e=>updateBonus(recordKey, 'major', e.target.value)} /></div>
-                                            </div>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                                {ANNUAL_STRUCTURE.map(sec => (
-                                    <Card key={sec.id}><CardHeader className="py-3 bg-slate-50"><CardTitle className="text-base">{sec.title}</CardTitle></CardHeader>
-                                    <CardContent className="p-0">
-                                        <table className="w-full text-sm">
-                                            <thead className="bg-slate-100 text-xs text-slate-500"><tr><th className="p-2 text-left">項目 (滿分如題示)</th><th className="w-16 text-center">自評</th><th className="w-16 text-center">督導</th><th className="w-16 text-center">主任</th></tr></thead>
-                                            <tbody className="divide-y">{sec.items.map(item => {
-                                                const s = scores[item.id] || {};
-                                                return <tr key={item.id}><td className="p-2"><div className="font-medium">{item.text}</div><div className="text-xs text-slate-400">滿分: {item.max}</div></td><td className="p-1"><Input className="text-center" placeholder={`/${item.max}`} value={s.self||''} onChange={e=>updateScore(recordKey, item.id, 'self', e.target.value)} /></td><td className="p-1"><Input className="text-center bg-blue-50" placeholder={`/${item.max}`} value={s.sup||''} onChange={e=>updateScore(recordKey, item.id, 'sup', e.target.value)} /></td><td className="p-1"><Input className="text-center" placeholder={`/${item.max}`} value={s.dir||''} onChange={e=>updateScore(recordKey, item.id, 'dir', e.target.value)} /></td></tr>;
-                                            })}</tbody>
-                                        </table>
-                                    </CardContent></Card>
-                                ))}
-                            </div>
-                            <div className="md:col-span-1">
-                                <Card className="bg-slate-900 text-white sticky top-4 border-none shadow-xl">
-                                    <CardHeader><CardTitle className="flex items-center gap-2"><Icons.Trophy className="text-yellow-400"/> 年度總成績</CardTitle></CardHeader>
-                                    <CardContent className="space-y-4">
-                                        <div className="text-center py-4 border-b border-slate-700"><div className="text-6xl font-bold font-mono text-yellow-400">{res.final}</div></div>
-                                        <div className="space-y-2 text-sm">
-                                            <div className="flex justify-between"><span>季考核 (15%)</span><span className="font-mono">{res.annualFromQuarter}</span></div>
-                                            <div className="flex justify-between"><span>自評 (10%)</span><span className="font-mono">{res.scoreSelf}</span></div>
-                                            <div className="flex justify-between"><span>督導 (50%)</span><span className="font-mono">{res.scoreSup}</span></div>
-                                            <div className="flex justify-between"><span>主任 (25%)</span><span className="font-mono">{res.scoreDir}</span></div>
-                                            <div className="border-t border-slate-700 my-2 pt-2"></div>
-                                            <div className="flex justify-between text-red-400"><span>出勤扣分</span><span className="font-mono">-{res.attDeduct}</span></div>
-                                            <div className="flex justify-between text-green-400"><span>獎懲加減</span><span className="font-mono">{res.rewardsScore > 0 ? '+'+res.rewardsScore : res.rewardsScore}</span></div>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            </div>
-                        </div>
-                    </div>
-                );
-            };
+            if (loading) {
+                return <div className="h-screen w-full flex items-center justify-center bg-slate-50 text-slate-500 font-bold animate-pulse">正在連線至雲端資料庫...</div>;
+            }
 
             return (
                 <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
                     {/* Header */}
                     <header className="bg-white border-b px-6 py-4 flex items-center justify-between sticky top-0 z-20 shadow-sm">
                         <div className="flex items-center gap-3">
-                            <div className="bg-blue-600 p-2 rounded-lg"><Icons.Calculator className="h-5 w-5 text-white" /></div>
-                            <h1 className="text-xl font-bold text-slate-800 hidden md:block">光祐居服員考核系統 <span className="text-sm font-normal text-slate-500 ml-2">v3.0 排名獎金版</span></h1>
+                            <div className="bg-blue-600 p-2 rounded-lg"><Icons.Cloud className="h-5 w-5 text-white" /></div>
+                            <h1 className="text-xl font-bold text-slate-800 hidden md:block">光祐居服員考核系統 <span className="text-sm font-normal text-slate-500 ml-2">v4.0 雲端協作版</span></h1>
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="flex bg-slate-100 rounded p-1 mr-4">
                                 <button onClick={() => setViewMode('individual')} className={`px-3 py-1 text-sm rounded transition-all flex items-center gap-1 ${viewMode==='individual' ? 'bg-white shadow text-blue-700 font-bold' : 'text-slate-500'}`}><Icons.Users className="w-4 h-4"/> 個別考核</button>
                                 <button onClick={() => setViewMode('ranking')} className={`px-3 py-1 text-sm rounded transition-all flex items-center gap-1 ${viewMode==='ranking' ? 'bg-white shadow text-blue-700 font-bold' : 'text-slate-500'}`}><Icons.BarChart className="w-4 h-4"/> 季度排名與獎金</button>
                             </div>
-                            <select value={currentYear} onChange={(e) => setCurrentYear(Number(e.target.value))} className="h-9 rounded border border-slate-300 px-3 text-sm font-bold bg-slate-50">
-                                <option value={113}>113年</option>
-                                <option value={114}>114年</option>
-                                <option value={115}>115年</option>
-                            </select>
-                            <div className="flex bg-slate-100 rounded p-1">
-                                {['Q1','Q2','Q3','Q4','ANNUAL'].map(q => (
-                                    <button key={q} onClick={() => setCurrentQuarter(q)} className={`px-3 py-1 text-sm rounded transition-all ${currentQuarter===q ? 'bg-white shadow text-blue-700 font-bold' : 'text-slate-500 hover:text-slate-900'}`}>{q === 'ANNUAL' ? '年度總評' : q}</button>
-                                ))}
-                            </div>
+                            <select value={currentYear} onChange={(e) => setCurrentYear(Number(e.target.value))} className="h-9 rounded border border-slate-300 px-3 text-sm font-bold bg-slate-50"><option value={113}>113年</option><option value={114}>114年</option><option value={115}>115年</option></select>
+                            <div className="flex bg-slate-100 rounded p-1">{['Q1','Q2','Q3','Q4','ANNUAL'].map(q => (<button key={q} onClick={() => setCurrentQuarter(q)} className={`px-3 py-1 text-sm rounded transition-all ${currentQuarter===q ? 'bg-white shadow text-blue-700 font-bold' : 'text-slate-500 hover:text-slate-900'}`}>{q === 'ANNUAL' ? '年度總評' : q}</button>))}</div>
                         </div>
                     </header>
 
                     <div className="flex flex-1 overflow-hidden h-[calc(100vh-73px)]">
-                        {/* Sidebar (Only visible in Individual Mode) */}
                         {viewMode === 'individual' && (
                             <aside className="w-72 bg-white border-r flex flex-col h-full overflow-hidden shrink-0">
                                 <div className="p-4 border-b flex-shrink-0"><Button onClick={() => { setEditingStaff(null); setIsStaffModalOpen(true); }} className="w-full"><Icons.Plus className="mr-2 h-4 w-4" /> 新增居服員</Button></div>
@@ -764,42 +446,58 @@
                                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${selectedStaffId === staff.id ? 'bg-blue-200 text-blue-700' : 'bg-slate-200 text-slate-500'}`}>{staff.name.charAt(0)}</div>
                                                     <div className="min-w-0"><div className="font-medium truncate text-slate-900">{staff.name}</div>{st==='resigned' && <Badge variant="destructive" className="mt-0.5">已離職</Badge>}</div>
                                                 </div>
-                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button onClick={(e) => { e.stopPropagation(); setEditingStaff(staff); setIsStaffModalOpen(true); }} className="p-1 hover:bg-slate-200 rounded text-slate-500"><Icons.Edit className="h-4 w-4"/></button>
-                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteStaff(staff.id); }} className="p-1 hover:bg-red-100 rounded text-red-500"><Icons.Trash2 className="h-4 w-4"/></button>
-                                                </div>
+                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setEditingStaff(staff); setIsStaffModalOpen(true); }} className="p-1 hover:bg-slate-200 rounded text-slate-500"><Icons.Edit className="h-4 w-4"/></button><button onClick={(e) => { e.stopPropagation(); handleDeleteStaff(staff.id); }} className="p-1 hover:bg-red-100 rounded text-red-500"><Icons.Trash2 className="h-4 w-4"/></button></div>
                                             </div>
                                         );
                                     })}
                                 </div>
                                 <div className="p-4 border-t bg-slate-50 flex gap-2">
-                                    <Button onClick={downloadData} variant="secondary" className="flex-1 text-xs" title="下載備份檔案"><Icons.Download className="w-4 h-4 mr-1"/> 匯出備份</Button>
-                                    <Button onClick={() => fileInputRef.current.click()} variant="outline" className="flex-1 text-xs" title="讀取備份檔案"><Icons.Upload className="w-4 h-4 mr-1"/> 匯入資料</Button>
+                                    <Button onClick={downloadData} variant="secondary" className="flex-1 text-xs" title="下載備份"><Icons.Download className="w-4 h-4 mr-1"/> 備份</Button>
+                                    <Button onClick={() => fileInputRef.current.click()} variant="outline" className="flex-1 text-xs" title="匯入舊檔"><Icons.Upload className="w-4 h-4 mr-1"/> 匯入</Button>
                                     <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".json"/>
                                 </div>
                             </aside>
                         )}
-
-                        {/* Main Content */}
                         <main className="flex-1 overflow-y-auto p-6 bg-slate-50">
                             {viewMode === 'individual' ? (
                                 selectedStaffId ? (
                                     <div className="max-w-5xl mx-auto">
                                         <div className="mb-6 flex items-center justify-between">
-                                            <div>
-                                                <h2 className="text-2xl font-bold text-slate-800">{staffList.find(s=>s.id===selectedStaffId)?.name}</h2>
-                                                <p className="text-slate-500 text-sm flex items-center gap-2"><Icons.Calendar className="h-4 w-4"/> {currentYear}年 {currentQuarter==='ANNUAL'?'年度考核':currentQuarter+' 季考核'}</p>
-                                            </div>
+                                            <div><h2 className="text-2xl font-bold text-slate-800">{staffList.find(s=>s.id===selectedStaffId)?.name}</h2><p className="text-slate-500 text-sm flex items-center gap-2"><Icons.Calendar className="h-4 w-4"/> {currentYear}年 {currentQuarter==='ANNUAL'?'年度考核':currentQuarter+' 季考核'}</p></div>
                                         </div>
-                                        {currentQuarter === 'ANNUAL' ? renderAnnualForm() : renderQuarterlyForm()}
+                                        {currentQuarter === 'ANNUAL' ? 
+                                            // Annual Render Logic (Copied from previous ver)
+                                            (() => {
+                                                const res = calculateAnnual(selectedStaffId, currentYear, allData);
+                                                const scores = currentRecord.scores || {};
+                                                const bonus = currentRecord.bonus || {};
+                                                return <div className="space-y-6 animate-in fade-in duration-300">
+                                                    <Card><CardHeader className="py-3 bg-blue-50"><CardTitle className="text-base text-blue-800">1. 季考核成績匯總 (佔15%)</CardTitle></CardHeader><CardContent className="pt-4"><div className="flex justify-between items-center text-sm mb-2">{res.qDetails.map(q => (<div key={q.q} className="text-center p-2 bg-slate-100 rounded min-w-[60px]"><div className="text-slate-500 font-bold">{q.q}</div><div className="font-mono">{typeof q.val === 'number' ? q.val.toFixed(1) : q.val}</div></div>))}<div className="text-xl font-bold text-blue-600 px-4">Avg: {res.qAvg} <span className="text-sm text-slate-400">x 15% = </span> {res.annualFromQuarter}</div></div></CardContent></Card>
+                                                    <div className="grid md:grid-cols-3 gap-6">
+                                                        <div className="md:col-span-2 space-y-6">
+                                                            <Card><CardHeader className="py-3 bg-slate-50"><CardTitle className="text-base">2. 出勤與獎懲</CardTitle></CardHeader><CardContent className="pt-4 grid grid-cols-1 gap-4"><div className="bg-red-50 p-3 rounded"><h4 className="font-bold text-red-800 text-sm mb-2">出勤扣分 (次/天)</h4><div className="grid grid-cols-5 gap-2 text-sm"><div><label>遲到早退</label><Input type="number" value={bonus.late||''} onChange={e=>updateBonus(recordKey, 'late', e.target.value)} /></div><div><label>曠班</label><Input type="number" value={bonus.absent||''} onChange={e=>updateBonus(recordKey, 'absent', e.target.value)} /></div><div><label>請假</label><Input type="number" value={bonus.leave||''} onChange={e=>updateBonus(recordKey, 'leave', e.target.value)} /></div><div><label>忘記簽退</label><Input type="number" value={bonus.forgot||''} onChange={e=>updateBonus(recordKey, 'forgot', e.target.value)} /></div><div><label>GPS異常</label><Input type="number" value={bonus.gps||''} onChange={e=>updateBonus(recordKey, 'gps', e.target.value)} /></div></div></div><div className="bg-green-50 p-3 rounded"><h4 className="font-bold text-green-800 text-sm mb-2">獎懲狀況 (支)</h4><div className="grid grid-cols-6 gap-2 text-sm"><div><label>嘉獎</label><Input type="number" value={bonus.commendation1||''} onChange={e=>updateBonus(recordKey, 'commendation1', e.target.value)} /></div><div><label>小功</label><Input type="number" value={bonus.commendation2||''} onChange={e=>updateBonus(recordKey, 'commendation2', e.target.value)} /></div><div><label>大功</label><Input type="number" value={bonus.commendation3||''} onChange={e=>updateBonus(recordKey, 'commendation3', e.target.value)} /></div><div><label>申誡</label><Input type="number" value={bonus.warning||''} onChange={e=>updateBonus(recordKey, 'warning', e.target.value)} /></div><div><label>小過</label><Input type="number" value={bonus.minor||''} onChange={e=>updateBonus(recordKey, 'minor', e.target.value)} /></div><div><label>大過</label><Input type="number" value={bonus.major||''} onChange={e=>updateBonus(recordKey, 'major', e.target.value)} /></div></div></div></CardContent></Card>
+                                                            {ANNUAL_STRUCTURE.map(sec => (<Card key={sec.id}><CardHeader className="py-3 bg-slate-50"><CardTitle className="text-base">{sec.title}</CardTitle></CardHeader><CardContent className="p-0"><table className="w-full text-sm"><thead className="bg-slate-100 text-xs text-slate-500"><tr><th className="p-2 text-left">項目 (滿分如題示)</th><th className="w-16 text-center">自評</th><th className="w-16 text-center">督導</th><th className="w-16 text-center">主任</th></tr></thead><tbody className="divide-y">{sec.items.map(item => {const s = scores[item.id] || {}; return <tr key={item.id}><td className="p-2"><div className="font-medium">{item.text}</div><div className="text-xs text-slate-400">滿分: {item.max}</div></td><td className="p-1"><Input className="text-center" placeholder={`/${item.max}`} value={s.self||''} onChange={e=>updateScore(recordKey, item.id, 'self', e.target.value)} /></td><td className="p-1"><Input className="text-center bg-blue-50" placeholder={`/${item.max}`} value={s.sup||''} onChange={e=>updateScore(recordKey, item.id, 'sup', e.target.value)} /></td><td className="p-1"><Input className="text-center" placeholder={`/${item.max}`} value={s.dir||''} onChange={e=>updateScore(recordKey, item.id, 'dir', e.target.value)} /></td></tr>;})}</tbody></table></CardContent></Card>))}
+                                                        </div>
+                                                        <div className="md:col-span-1"><Card className="bg-slate-900 text-white sticky top-4 border-none shadow-xl"><CardHeader><CardTitle className="flex items-center gap-2"><Icons.Trophy className="text-yellow-400"/> 年度總成績</CardTitle></CardHeader><CardContent className="space-y-4"><div className="text-center py-4 border-b border-slate-700"><div className="text-6xl font-bold font-mono text-yellow-400">{res.final}</div></div><div className="space-y-2 text-sm"><div className="flex justify-between"><span>季考核 (15%)</span><span className="font-mono">{res.annualFromQuarter}</span></div><div className="flex justify-between"><span>自評 (10%)</span><span className="font-mono">{res.scoreSelf}</span></div><div className="flex justify-between"><span>督導 (50%)</span><span className="font-mono">{res.scoreSup}</span></div><div className="flex justify-between"><span>主任 (25%)</span><span className="font-mono">{res.scoreDir}</span></div><div className="border-t border-slate-700 my-2 pt-2"></div><div className="flex justify-between text-red-400"><span>出勤扣分</span><span className="font-mono">-{res.attDeduct}</span></div><div className="flex justify-between text-green-400"><span>獎懲加減</span><span className="font-mono">{res.rewardsScore > 0 ? '+'+res.rewardsScore : res.rewardsScore}</span></div></div></CardContent></Card></div>
+                                                    </div>
+                                                </div>;
+                                            })()
+                                        : 
+                                            // Quarterly Render Logic
+                                            (() => {
+                                                const result = calculateQuarterly(currentRecord);
+                                                return <div className="space-y-6 animate-in fade-in duration-300">
+                                                    <div className="flex items-center space-x-2 bg-yellow-50 p-3 rounded border border-yellow-200"><input type="checkbox" id="isNewHire" checked={currentRecord.isNewHire || false} onChange={(e) => updateRecord(recordKey, 'isNewHire', e.target.checked)} className="w-4 h-4 text-blue-600 rounded" /><label htmlFor="isNewHire" className="text-sm font-medium text-slate-800">此考核為「新進人員/試用期」考核 (勾選後，此分數將<span className="text-red-600 font-bold">不列入</span>年度平均計算)</label></div>
+                                                    <div className="grid md:grid-cols-2 gap-4"><div className="space-y-4"><Card><CardContent className="pt-6"><h3 className="font-bold mb-4 flex items-center gap-2"><Icons.Trophy className="h-4 w-4 text-amber-500"/> 加扣分</h3><div className="grid grid-cols-2 gap-4 text-sm"><label>介紹新人 (人)</label><Input type="number" value={currentRecord.bonus?.newStaff||''} onChange={e=>updateBonus(recordKey, 'newStaff', e.target.value)} /><label>介紹個案 (案)</label><Input type="number" value={currentRecord.bonus?.newCase||''} onChange={e=>updateBonus(recordKey, 'newCase', e.target.value)} /><label>創新經驗 (分)</label><Input type="number" value={currentRecord.bonus?.innovation||''} onChange={e=>updateBonus(recordKey, 'innovation', e.target.value)} /><label className="text-red-600">稽核異常 (項)</label><Input type="number" value={currentRecord.bonus?.auditError||''} onChange={e=>updateBonus(recordKey, 'auditError', e.target.value)} /><label className="text-red-600">申訴屬實 (案)</label><Input type="number" value={currentRecord.bonus?.complaint||''} onChange={e=>updateBonus(recordKey, 'complaint', e.target.value)} /></div></CardContent></Card>{QUARTERLY_STRUCTURE.map(sec => (<Card key={sec.id}><CardHeader className="py-3 bg-slate-50"><CardTitle className="text-base">{sec.title}</CardTitle></CardHeader><CardContent className="p-0"><table className="w-full text-sm"><thead className="bg-slate-100 text-xs text-slate-500"><tr><th className="p-2 text-left">項目</th><th className="w-12 text-center">自評</th><th className="w-12 text-center">督導</th><th className="w-12 text-center">主任</th></tr></thead><tbody className="divide-y">{sec.items.map(item => {const s = currentRecord.scores?.[item.id] || {}; return <tr key={item.id}><td className="p-2">{item.text}</td><td className="p-1"><Input className="text-center px-0" value={s.self||''} onChange={e=>updateScore(recordKey, item.id, 'self', e.target.value)} /></td><td className="p-1"><Input className="text-center px-0 bg-blue-50" value={s.sup||''} onChange={e=>updateScore(recordKey, item.id, 'sup', e.target.value)} /></td><td className="p-1"><Input className="text-center px-0" value={s.dir||''} onChange={e=>updateScore(recordKey, item.id, 'dir', e.target.value)} /></td></tr>;})}</tbody></table></CardContent></Card>))}</div><div className="space-y-4"><Card className="bg-slate-800 text-white border-none sticky top-4"><CardHeader><CardTitle>本季成績單</CardTitle></CardHeader><CardContent><div className="text-5xl font-bold font-mono text-center mb-4">{result.total}</div><div className="space-y-2 text-sm text-slate-300">{result.details.map((d,i) => (<div key={i} className="flex justify-between border-b border-slate-700 pb-1"><span>{d.title}</span><span>{d.weighted}</span></div>))}</div>{currentRecord.isNewHire && <div className="mt-4 text-center bg-yellow-500/20 text-yellow-300 py-1 rounded">試用期 / 不計入年度</div>}</CardContent></Card></div></div>
+                                                </div>;
+                                            })()
+                                        }
                                     </div>
                                 ) : (
                                     <div className="h-full flex flex-col items-center justify-center text-slate-400"><Icons.Users className="h-16 w-16 mb-4 opacity-20" /><p>請選擇左側居服員進行考核</p></div>
                                 )
                             ) : (
-                                <div className="max-w-5xl mx-auto">
-                                    <RankingView staffList={staffList} allData={allData} currentYear={currentYear} currentQuarter={currentQuarter} />
-                                </div>
+                                <div className="max-w-5xl mx-auto"><RankingView staffList={staffList} allData={allData} currentYear={currentYear} currentQuarter={currentQuarter} /></div>
                             )}
                         </main>
                     </div>
@@ -807,13 +505,11 @@
                     <Modal isOpen={isStaffModalOpen} onClose={() => setIsStaffModalOpen(false)} title={editingStaff ? "編輯居服員資料" : "新增居服員"}>
                         <form onSubmit={handleSaveStaff} className="space-y-4">
                             <div><label className="block text-sm font-medium mb-1">姓名</label><Input name="name" defaultValue={editingStaff?.name} required /></div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-medium mb-1">到職日 (如 113-01-01)</label><Input name="onboardDate" defaultValue={editingStaff?.onboardDate} placeholder="YYY-MM-DD" /></div>
-                                <div><label className="block text-sm font-medium mb-1">離職日 (選填)</label><Input name="resignDate" defaultValue={editingStaff?.resignDate} placeholder="YYY-MM-DD" /><p className="text-xs text-slate-500 mt-1">設定後該日期後的季度將無法考核</p></div>
-                            </div>
-                            <div className="flex justify-end pt-4"><Button type="submit"><Icons.Save className="w-4 h-4 mr-2"/> 儲存資料</Button></div>
+                            <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium mb-1">到職日 (如 113-01-01)</label><Input name="onboardDate" defaultValue={editingStaff?.onboardDate} placeholder="YYY-MM-DD" /></div><div><label className="block text-sm font-medium mb-1">離職日 (選填)</label><Input name="resignDate" defaultValue={editingStaff?.resignDate} placeholder="YYY-MM-DD" /><p className="text-xs text-slate-500 mt-1">設定後該日期後的季度將無法考核</p></div></div>
+                            <div className="flex justify-end pt-4"><Button type="submit"><Icons.Save className="w-4 h-4 mr-2"/> 儲存並同步</Button></div>
                         </form>
                     </Modal>
+                    {saving && <div className="saving-indicator flex items-center gap-1"><Icons.Cloud className="w-3 h-3 animate-bounce"/> 儲存中...</div>}
                 </div>
             );
         }
